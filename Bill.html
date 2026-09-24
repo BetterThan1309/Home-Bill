@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>บัญชีรายรับรายจ่าย</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,"Segoe UI","Noto Sans Thai",sans-serif;background:#0f1115;color:#e6e8ec;padding:16px;line-height:1.6}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:22px}
+.sub{color:#8b93a1;font-size:13px;margin-bottom:18px}
+.card{background:#171a21;border:1px solid #242833;border-radius:14px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+label{display:block;font-size:12px;color:#8b93a1;margin-bottom:4px}
+input,select,button{width:100%;padding:12px;border-radius:9px;border:1px solid #2c3140;background:#0f1115;color:#e6e8ec;font-size:16px;font-family:inherit}
+button{background:#4f7cff;border:0;font-weight:600;cursor:pointer}
+button:active{background:#3d68e8}
+.btn-ghost{background:#242833;color:#e6e8ec}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.stat{background:#171a21;border:1px solid #242833;border-radius:14px;padding:14px 8px;text-align:center}
+.stat .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.in{color:#42d392}.out{color:#ff6b6b}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:10px 6px;border-bottom:1px solid #242833;text-align:left}
+th{color:#8b93a1;font-size:12px}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{background:#242833;padding:2px 9px;border-radius:99px;font-size:12px;white-space:nowrap}
+.who{background:#2b3348;color:#9db4ff;padding:2px 9px;border-radius:99px;font-size:12px}
+.del{background:none;border:0;color:#ff6b6b;cursor:pointer;width:auto;padding:2px 6px;font-size:16px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.row select,.row button{width:auto;flex:0 0 auto}
+.empty{text-align:center;color:#8b93a1;padding:24px}
+canvas{max-height:260px}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.topbar button{width:auto;padding:8px 14px;font-size:13px}
+#pick{max-width:380px;margin:60px auto}
+.users{display:grid;gap:10px;margin-top:14px}
+.users button{background:#242833;font-size:17px;padding:14px}
+.users button:active{background:#4f7cff}
+.hide{display:none!important}
+.scroll{overflow-x:auto}
+@media(max-width:520px){td:nth-child(4),th:nth-child(4){display:none}}
+</style>
+</head>
+<body>
+
+<!-- เลือกผู้ใช้ -->
+<div id="pick" class="card">
+  <h1>เลือกผู้ใช้</h1>
+  <p class="sub">ทุกคนใช้ฐานข้อมูลเดียวกัน</p>
+  <div class="users" id="userBtns"></div>
+</div>
+
+<!-- แอป -->
+<div class="wrap hide" id="app">
+  <div class="topbar">
+    <h1>บัญชีรายรับรายจ่าย</h1>
+    <button class="btn-ghost" onclick="switchUser()">เปลี่ยนผู้ใช้</button>
+  </div>
+  <p class="sub" id="who"></p>
+
+  <div class="stats">
+    <div class="stat"><label>รายรับ</label><div class="v in" id="sIn">0</div></div>
+    <div class="stat"><label>รายจ่าย</label><div class="v out" id="sOut">0</div></div>
+    <div class="stat"><label>คงเหลือ</label><div class="v" id="sBal">0</div></div>
+  </div>
+
+  <div class="card">
+    <form id="f" class="grid">
+      <div><label>วันที่</label><input type="date" id="date" required></div>
+      <div><label>ประเภท</label><select id="type"><option value="expense">รายจ่าย</option><option value="income">รายรับ</option></select></div>
+      <div><label>หมวดหมู่</label><select id="cat"></select></div>
+      <div><label>รายละเอียด</label><input id="note" placeholder="เช่น ค่ากาแฟ"></div>
+      <div><label>จำนวนเงิน</label><input type="number" id="amt" step="0.01" min="0" inputmode="decimal" required placeholder="0.00"></div>
+      <div style="display:flex;align-items:flex-end"><button type="submit">เพิ่มรายการ</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <strong style="flex:1">สรุป</strong>
+      <select id="oSel"></select>
+      <select id="mSel"></select>
+      <button class="btn-ghost" onclick="exportCSV()">CSV</button>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>วันที่</th><th>ผู้ใช้</th><th>หมวดหมู่</th><th>รายละเอียด</th><th class="num">จำนวน</th><th></th></tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty">ยังไม่มีรายการ</div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL="https://lsbiyedrfofhygfzukxz.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzYml5ZWRyZm9maHlnZnp1a3h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMjI2MzQsImV4cCI6MjEwNTc5ODYzNH0.L27A9LLYmd1ol7MJTcZFCZC3WoAhlAR6Yy1mxskQOQI";
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+const USERS=["Great","Michi","Green","Gig","May"];
+const CATS={
+  expense:["🍜 อาหารและเครื่องดื่ม","🎮 เติมเกม","🚕 การเดินทาง","🏠 ที่อยู่อาศัย","🧴 ของใช้ส่วนตัว","🛍️ ช้อปปิ้ง","💳 ชำระหนี้","📈 การลงทุน","🐱 สำหรับแมว"],
+  income:["💰 เงินเดือน","💼 รายได้เสริม","📊 การลงทุน","✨ อื่นๆ"]
+};
+
+let me=localStorage.getItem("me")||"", tx=[], chart, channel;
+const $=id=>document.getElementById(id);
+const fmt=n=>Number(n).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* ---------- เลือกผู้ใช้ ---------- */
+$("userBtns").innerHTML=USERS.map(u=>`<button onclick="setUser('${u}')">${u}</button>`).join("");
+function setUser(u){ me=u; localStorage.setItem("me",u); start(); }
+function switchUser(){ localStorage.removeItem("me"); location.reload(); }
+if(USERS.includes(me)) start(); 
+
+function start(){
+  $("pick").classList.add("hide");
+  $("app").classList.remove("hide");
+  $("who").textContent="กำลังบันทึกในชื่อ "+me;
+  init();
+}
+
+/* ---------- App ---------- */
+function fillCats(){ $("cat").innerHTML=CATS[$("type").value].map(c=>`<option>${c}</option>`).join(""); }
+
+async function load(){
+  const {data,error}=await db.from("transactions").select("*").order("date",{ascending:false});
+  if(error){alert(error.message);return;}
+  tx=data; render();
+}
+
+async function init(){
+  fillCats();
+  $("type").onchange=fillCats;
+  $("date").valueAsDate=new Date();
+  $("oSel").innerHTML=`<option value="">ทุกคน</option>`+USERS.map(u=>`<option ${u===me?"selected":""}>${u}</option>`).join("");
+  $("oSel").onchange=render;
+  $("mSel").onchange=render;
+  $("f").onsubmit=add;
+  await load();
+  if(!channel){
+    channel=db.channel("tx").on("postgres_changes",
+      {event:"*",schema:"public",table:"transactions"},load).subscribe();
+  }
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) load(); });
+}
+
+async function add(e){
+  e.preventDefault();
+  const row={owner:me,date:$("date").value,type:$("type").value,cat:$("cat").value,
+             note:$("note").value.trim(),amt:parseFloat($("amt").value)};
+  const {error}=await db.from("transactions").insert(row);
+  if(error){alert(error.message);return;}
+  $("note").value="";$("amt").value="";
+  await load();
+}
+
+async function del(id){
+  if(!confirm("ลบรายการนี้?"))return;
+  await db.from("transactions").delete().eq("id",id);
+  await load();
+}
+
+function filtered(){
+  const o=$("oSel").value;
+  return o? tx.filter(t=>t.owner===o) : tx;
+}
+
+function render(){
+  const base=filtered();
+  const ms=[...new Set(base.map(t=>t.date.slice(0,7)))].sort().reverse();
+  const cur=ms.includes($("mSel").value)?$("mSel").value:(ms[0]||"");
+  $("mSel").innerHTML=ms.map(m=>`<option ${m===cur?"selected":""}>${m}</option>`).join("")||"<option>-</option>";
+
+  const list=base.filter(t=>t.date.startsWith(cur));
+  const inc=list.filter(t=>t.type==="income").reduce((s,t)=>s+ +t.amt,0);
+  const exp=list.filter(t=>t.type==="expense").reduce((s,t)=>s+ +t.amt,0);
+  $("sIn").textContent=fmt(inc); $("sOut").textContent=fmt(exp);
+  $("sBal").textContent=fmt(inc-exp);
+  $("sBal").className="v "+(inc-exp>=0?"in":"out");
+
+  $("tb").innerHTML=list.map(t=>`<tr>
+    <td>${t.date.slice(5)}</td><td><span class="who">${t.owner}</span></td>
+    <td><span class="tag">${t.cat}</span></td><td>${t.note||"-"}</td>
+    <td class="num ${t.type==="income"?"in":"out"}">${t.type==="income"?"+":"-"}${fmt(t.amt)}</td>
+    <td><button class="del" onclick="del('${t.id}')">✕</button></td></tr>`).join("");
+  $("empty").style.display=list.length?"none":"block";
+
+  const by={};
+  list.filter(t=>t.type==="expense").forEach(t=>by[t.cat]=(by[t.cat]||0)+ +t.amt);
+  const labels=Object.keys(by),data=Object.values(by);
+  if(chart)chart.destroy();
+  chart=new Chart($("chart"),{type:"doughnut",
+    data:{labels:labels.length?labels:["ไม่มีรายจ่าย"],
+      datasets:[{data:data.length?data:[1],
+      backgroundColor:["#4f7cff","#ff6b6b","#42d392","#ffb454","#a78bfa","#38bdf8","#f472b6","#94a3b8"],
+      borderColor:"#171a21",borderWidth:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:window.innerWidth<520?"bottom":"right",
+      labels:{color:"#e6e8ec",padding:12,boxWidth:14}}}}});
+}
+
+function exportCSV(){
+  const rows=[["วันที่","ผู้ใช้","ประเภท","หมวดหมู่","รายละเอียด","จำนวนเงิน"],
+    ...[...filtered()].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>
+      [t.date,t.owner,t.type==="income"?"รายรับ":"รายจ่าย",t.cat,t.note||"",t.amt])];
+  const csv="\uFEFF"+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="transactions.csv"; a.click();
+}
+</script>
+</body>
+</html>
