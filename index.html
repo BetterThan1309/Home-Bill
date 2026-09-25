@@ -44,6 +44,12 @@ canvas{max-height:240px}
 .hide{display:none!important}
 .scroll{overflow-x:auto}
 .ctitle{font-size:13px;color:#8b93a1;margin:4px 0 8px}
+.fbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.fbar .full{grid-column:1/-1}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.chip{background:#242833;border:1px solid #2c3140;color:#9db4ff;font-size:12px;padding:4px 10px;border-radius:99px;width:auto}
+.hit{color:#8b93a1;font-size:12px;margin-bottom:8px}
+mark{background:#4f7cff40;color:#cfe0ff;border-radius:3px;padding:0 2px}
 @media(max-width:520px){td:nth-child(4),th:nth-child(4){display:none}}
 </style>
 </head>
@@ -81,16 +87,35 @@ canvas{max-height:240px}
     </form>
   </div>
 
+  <!-- ตัวกรอง -->
   <div class="card">
-    <div class="row">
-      <strong style="flex:1">สรุป</strong>
-      <select id="oSel"></select>
-      <select id="mSel"></select>
+    <div class="row"><strong style="flex:1">ค้นหา / กรอง</strong>
+      <button class="btn-ghost" onclick="clearFilter()">ล้างตัวกรอง</button>
       <button class="btn-ghost" onclick="exportCSV()">CSV</button>
     </div>
+    <div class="fbar">
+      <div class="full"><label>ค้นหา (รายละเอียด / หมวดหมู่ / ผู้ใช้)</label>
+        <input id="q" placeholder="เช่น กาแฟ, แมว, เงินเดือน"></div>
+      <div><label>ผู้ใช้</label><select id="oSel"></select></div>
+      <div><label>ประเภท</label><select id="tSel">
+        <option value="">ทั้งหมด</option><option value="income">รายรับ</option><option value="expense">รายจ่าย</option></select></div>
+      <div><label>เดือน</label><select id="mSel"></select></div>
+      <div><label>ตั้งแต่วันที่</label><input type="date" id="dFrom"></div>
+      <div><label>ถึงวันที่</label><input type="date" id="dTo"></div>
+    </div>
+    <div class="chips">
+      <button class="chip" onclick="quick(0)">เดือนนี้</button>
+      <button class="chip" onclick="quick(7)">7 วันล่าสุด</button>
+      <button class="chip" onclick="quick(30)">30 วันล่าสุด</button>
+      <button class="chip" onclick="quick(365)">1 ปีล่าสุด</button>
+    </div>
+    <div class="hit" id="hit"></div>
+  </div>
+
+  <div class="card">
     <div class="ctitle">รายรับ vs รายจ่าย (6 เดือนล่าสุด)</div>
     <canvas id="chart"></canvas>
-    <div class="ctitle" style="margin-top:18px">สัดส่วนรายจ่ายตามหมวด (เดือนที่เลือก)</div>
+    <div class="ctitle" style="margin-top:18px">สัดส่วนรายจ่ายตามหมวด (ตามตัวกรอง)</div>
     <canvas id="chart2"></canvas>
   </div>
 
@@ -101,7 +126,7 @@ canvas{max-height:240px}
         <tbody id="tb"></tbody>
       </table>
     </div>
-    <div class="empty" id="empty">ยังไม่มีรายการ</div>
+    <div class="empty" id="empty">ไม่พบรายการ</div>
   </div>
 </div>
 
@@ -110,15 +135,16 @@ const SUPABASE_URL="https://lsbiyedrfofhygfzukxz.supabase.co";
 const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzYml5ZWRyZm9maHlnZnp1a3h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMjI2MzQsImV4cCI6MjEwNTc5ODYzNH0.L27A9LLYmd1ol7MJTcZFCZC3WoAhlAR6Yy1mxskQOQI";
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const USERS=["Great","Michi","Green","Gig","May"];
+const USERS=["Great","Michi","Green","Gig","May","Boat","Papa"];
 const CATS={
-  expense:["🍜 อาหารและเครื่องดื่ม","🚕 การเดินทาง","🏠 ที่อยู่อาศัย","🧴 ของใช้ส่วนตัว","🛍️ ช้อปปิ้ง","💳 ชำระหนี้","📈 การลงทุน","🐱 สำหรับแมว"],
+  expense:["🍜 อาหารและเครื่องดื่ม","🚕 การเดินทาง","🕹️ เติมเกม","🏠 ที่อยู่อาศัย","🧴 ของใช้ส่วนตัว","🛍️ ช้อปปิ้ง","💳 ชำระหนี้","📈 การลงทุน","🐱 สำหรับแมว"],
   income:["💰 เงินเดือน","💼 รายได้เสริม","📊 การลงทุน","✨ อื่นๆ"]
 };
 
-let me=localStorage.getItem("me")||"", tx=[], chart, chart2, channel;
+let me=localStorage.getItem("me")||"", tx=[], chart, chart2, channel, timer;
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 /* ---------- เลือกผู้ใช้ ---------- */
 $("userBtns").innerHTML=USERS.map(u=>`<button onclick="setUser('${u}')">${u}</button>`).join("");
@@ -147,8 +173,8 @@ async function init(){
   $("type").onchange=fillCats;
   $("date").valueAsDate=new Date();
   $("oSel").innerHTML=`<option value="">ทุกคน</option>`+USERS.map(u=>`<option ${u===me?"selected":""}>${u}</option>`).join("");
-  $("oSel").onchange=render;
-  $("mSel").onchange=render;
+  ["oSel","tSel","mSel","dFrom","dTo"].forEach(id=>$(id).onchange=render);
+  $("q").oninput=()=>{clearTimeout(timer);timer=setTimeout(render,200);};
   $("f").onsubmit=add;
   await load();
   if(!channel){
@@ -174,32 +200,63 @@ async function del(id){
   await load();
 }
 
-function filtered(){
-  const o=$("oSel").value;
-  return o? tx.filter(t=>t.owner===o) : tx;
+/* ---------- ตัวกรอง ---------- */
+function clearFilter(){
+  $("q").value="";$("tSel").value="";$("dFrom").value="";$("dTo").value="";
+  render();
+}
+function quick(days){
+  const to=new Date(), from=new Date();
+  if(days===0){ from.setDate(1); }
+  else { from.setDate(to.getDate()-days+1); }
+  const iso=d=>d.toISOString().slice(0,10);
+  $("dFrom").value=iso(from); $("dTo").value=iso(to);
+  render();
+}
+function byOwner(){ const o=$("oSel").value; return o? tx.filter(t=>t.owner===o) : tx; }
+
+function applyFilter(base,cur){
+  const q=$("q").value.trim().toLowerCase(), ty=$("tSel").value;
+  const f=$("dFrom").value, t=$("dTo").value, useRange=f||t;
+  return base.filter(r=>{
+    if(useRange){ if(f&&r.date<f)return false; if(t&&r.date>t)return false; }
+    else if(cur && !r.date.startsWith(cur)) return false;
+    if(ty && r.type!==ty) return false;
+    if(q && !((r.note||"")+" "+r.cat+" "+r.owner).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+function hl(s){
+  const q=$("q").value.trim(); if(!q) return esc(s);
+  const i=String(s).toLowerCase().indexOf(q.toLowerCase());
+  if(i<0) return esc(s);
+  return esc(String(s).slice(0,i))+"<mark>"+esc(String(s).substr(i,q.length))+"</mark>"+esc(String(s).slice(i+q.length));
 }
 
 function render(){
-  const base=filtered();
+  const base=byOwner();
   const ms=[...new Set(base.map(t=>t.date.slice(0,7)))].sort().reverse();
   const cur=ms.includes($("mSel").value)?$("mSel").value:(ms[0]||"");
   $("mSel").innerHTML=ms.map(m=>`<option ${m===cur?"selected":""}>${m}</option>`).join("")||"<option>-</option>";
+  const useRange=$("dFrom").value||$("dTo").value;
+  $("mSel").disabled=!!useRange;
 
-  const list=base.filter(t=>t.date.startsWith(cur));
+  const list=applyFilter(base,cur);
   const inc=list.filter(t=>t.type==="income").reduce((s,t)=>s+ +t.amt,0);
   const exp=list.filter(t=>t.type==="expense").reduce((s,t)=>s+ +t.amt,0);
   $("sIn").textContent=fmt(inc); $("sOut").textContent=fmt(exp);
   $("sBal").textContent=fmt(inc-exp);
   $("sBal").className="v "+(inc-exp>=0?"in":"out");
+  $("hit").textContent=`พบ ${list.length} รายการ · ${useRange?"ช่วง "+($("dFrom").value||"เริ่มต้น")+" ถึง "+($("dTo").value||"ปัจจุบัน"):"เดือน "+(cur||"-")}`;
 
   $("tb").innerHTML=list.map(t=>`<tr>
     <td>${t.date.slice(5)}</td><td><span class="who">${t.owner}</span></td>
-    <td><span class="tag">${t.cat}</span></td><td>${t.note||"-"}</td>
+    <td><span class="tag">${hl(t.cat)}</span></td><td>${t.note?hl(t.note):"-"}</td>
     <td class="num ${t.type==="income"?"in":"out"}">${t.type==="income"?"+":"-"}${fmt(t.amt)}</td>
     <td><button class="del" onclick="del('${t.id}')">✕</button></td></tr>`).join("");
   $("empty").style.display=list.length?"none":"block";
 
-  // ---- กราฟ 1: รายรับ vs รายจ่าย ย้อนหลัง 6 เดือน ----
+  // กราฟ 1: 6 เดือนล่าสุด (ไม่ขึ้นกับตัวกรองวันที่/คำค้น)
   const last6=[...ms].slice(0,6).reverse();
   const incM=last6.map(m=>base.filter(t=>t.date.startsWith(m)&&t.type==="income").reduce((s,t)=>s+ +t.amt,0));
   const expM=last6.map(m=>base.filter(t=>t.date.startsWith(m)&&t.type==="expense").reduce((s,t)=>s+ +t.amt,0));
@@ -217,7 +274,7 @@ function render(){
       scales:{x:{grid:{display:false},ticks:tick},
         y:{grid,ticks:{...tick,callback:v=>v.toLocaleString("th-TH")}}}}});
 
-  // ---- กราฟ 2: สัดส่วนรายจ่ายตามหมวด ----
+  // กราฟ 2: สัดส่วนรายจ่ายตามตัวกรอง
   const by={};
   list.filter(t=>t.type==="expense").forEach(t=>by[t.cat]=(by[t.cat]||0)+ +t.amt);
   const labels=Object.keys(by),data=Object.values(by);
@@ -234,8 +291,11 @@ function render(){
 }
 
 function exportCSV(){
+  const base=byOwner();
+  const ms=[...new Set(base.map(t=>t.date.slice(0,7)))].sort().reverse();
+  const cur=ms.includes($("mSel").value)?$("mSel").value:(ms[0]||"");
   const rows=[["วันที่","ผู้ใช้","ประเภท","หมวดหมู่","รายละเอียด","จำนวนเงิน"],
-    ...[...filtered()].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>
+    ...applyFilter(base,cur).sort((a,b)=>a.date.localeCompare(b.date)).map(t=>
       [t.date,t.owner,t.type==="income"?"รายรับ":"รายจ่าย",t.cat,t.note||"",t.amt])];
   const csv="\uFEFF"+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
   const a=document.createElement("a");
