@@ -34,7 +34,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .row select,.row button{width:auto;flex:0 0 auto}
 .empty{text-align:center;color:#8b93a1;padding:24px}
-canvas{max-height:260px}
+canvas{max-height:240px}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .topbar button{width:auto;padding:8px 14px;font-size:13px}
 #pick{max-width:380px;margin:60px auto}
@@ -43,6 +43,7 @@ canvas{max-height:260px}
 .users button:active{background:#4f7cff}
 .hide{display:none!important}
 .scroll{overflow-x:auto}
+.ctitle{font-size:13px;color:#8b93a1;margin:4px 0 8px}
 @media(max-width:520px){td:nth-child(4),th:nth-child(4){display:none}}
 </style>
 </head>
@@ -87,7 +88,10 @@ canvas{max-height:260px}
       <select id="mSel"></select>
       <button class="btn-ghost" onclick="exportCSV()">CSV</button>
     </div>
+    <div class="ctitle">รายรับ vs รายจ่าย (6 เดือนล่าสุด)</div>
     <canvas id="chart"></canvas>
+    <div class="ctitle" style="margin-top:18px">สัดส่วนรายจ่ายตามหมวด (เดือนที่เลือก)</div>
+    <canvas id="chart2"></canvas>
   </div>
 
   <div class="card">
@@ -106,13 +110,13 @@ const SUPABASE_URL="https://lsbiyedrfofhygfzukxz.supabase.co";
 const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzYml5ZWRyZm9maHlnZnp1a3h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyMjI2MzQsImV4cCI6MjEwNTc5ODYzNH0.L27A9LLYmd1ol7MJTcZFCZC3WoAhlAR6Yy1mxskQOQI";
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const USERS=["Great","Michi","Green","Boat","Gig","May","Papa"];
+const USERS=["Great","Michi","Green","Gig","May"];
 const CATS={
-  expense:["🍜 อาหารและเครื่องดื่ม","🎮 เติมเกม","🚕 การเดินทาง","🏠 ที่อยู่อาศัย","🧴 ของใช้ส่วนตัว","🛍️ ช้อปปิ้ง","💳 ชำระหนี้","📈 การลงทุน","🐱 สำหรับแมว"],
+  expense:["🍜 อาหารและเครื่องดื่ม","🚕 การเดินทาง","🏠 ที่อยู่อาศัย","🧴 ของใช้ส่วนตัว","🛍️ ช้อปปิ้ง","💳 ชำระหนี้","📈 การลงทุน","🐱 สำหรับแมว"],
   income:["💰 เงินเดือน","💼 รายได้เสริม","📊 การลงทุน","✨ อื่นๆ"]
 };
 
-let me=localStorage.getItem("me")||"", tx=[], chart, channel;
+let me=localStorage.getItem("me")||"", tx=[], chart, chart2, channel;
 const $=id=>document.getElementById(id);
 const fmt=n=>Number(n).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -120,7 +124,7 @@ const fmt=n=>Number(n).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFr
 $("userBtns").innerHTML=USERS.map(u=>`<button onclick="setUser('${u}')">${u}</button>`).join("");
 function setUser(u){ me=u; localStorage.setItem("me",u); start(); }
 function switchUser(){ localStorage.removeItem("me"); location.reload(); }
-if(USERS.includes(me)) start(); 
+if(USERS.includes(me)) start();
 
 function start(){
   $("pick").classList.add("hide");
@@ -195,18 +199,38 @@ function render(){
     <td><button class="del" onclick="del('${t.id}')">✕</button></td></tr>`).join("");
   $("empty").style.display=list.length?"none":"block";
 
+  // ---- กราฟ 1: รายรับ vs รายจ่าย ย้อนหลัง 6 เดือน ----
+  const last6=[...ms].slice(0,6).reverse();
+  const incM=last6.map(m=>base.filter(t=>t.date.startsWith(m)&&t.type==="income").reduce((s,t)=>s+ +t.amt,0));
+  const expM=last6.map(m=>base.filter(t=>t.date.startsWith(m)&&t.type==="expense").reduce((s,t)=>s+ +t.amt,0));
+  const grid={color:"#242833"},tick={color:"#8b93a1"};
+  if(chart)chart.destroy();
+  chart=new Chart($("chart"),{type:"bar",
+    data:{labels:last6.length?last6:["-"],datasets:[
+      {label:"รายรับ",data:incM,backgroundColor:"#42d392",borderRadius:6},
+      {label:"รายจ่าย",data:expM,backgroundColor:"#ff6b6b",borderRadius:6},
+      {label:"คงเหลือ",type:"line",data:last6.map((_,i)=>incM[i]-expM[i]),
+       borderColor:"#4f7cff",backgroundColor:"#4f7cff",tension:.3,pointRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:"#e6e8ec",boxWidth:14,padding:12}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+": "+fmt(c.parsed.y)}}},
+      scales:{x:{grid:{display:false},ticks:tick},
+        y:{grid,ticks:{...tick,callback:v=>v.toLocaleString("th-TH")}}}}});
+
+  // ---- กราฟ 2: สัดส่วนรายจ่ายตามหมวด ----
   const by={};
   list.filter(t=>t.type==="expense").forEach(t=>by[t.cat]=(by[t.cat]||0)+ +t.amt);
   const labels=Object.keys(by),data=Object.values(by);
-  if(chart)chart.destroy();
-  chart=new Chart($("chart"),{type:"doughnut",
+  if(chart2)chart2.destroy();
+  chart2=new Chart($("chart2"),{type:"doughnut",
     data:{labels:labels.length?labels:["ไม่มีรายจ่าย"],
       datasets:[{data:data.length?data:[1],
       backgroundColor:["#4f7cff","#ff6b6b","#42d392","#ffb454","#a78bfa","#38bdf8","#f472b6","#94a3b8"],
       borderColor:"#171a21",borderWidth:3}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:window.innerWidth<520?"bottom":"right",
-      labels:{color:"#e6e8ec",padding:12,boxWidth:14}}}}});
+        labels:{color:"#e6e8ec",padding:12,boxWidth:14}},
+        tooltip:{callbacks:{label:c=>c.label+": "+fmt(c.parsed)}}}}});
 }
 
 function exportCSV(){
